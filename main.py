@@ -2,7 +2,7 @@ import os
 import requests
 import cloudinary
 import cloudinary.uploader
-import google.genai as genai
+import google.generativeai as genai
 from fastapi import FastAPI, UploadFile, File
 from dotenv import load_dotenv
 import uvicorn
