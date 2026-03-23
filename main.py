@@ -1,101 +1,83 @@
-import os
-import requests
-import cloudinary
-import cloudinary.uploader
+import os, time, json, re, requests
+import cloudinary, cloudinary.uploader
 import google.generativeai as genai
 from fastapi import FastAPI, UploadFile, File
 from dotenv import load_dotenv
-import uvicorn
 
 load_dotenv()
-
 app = FastAPI()
 
-@app.get("/")
-def home():
-    return {"message": "HookCut AI Backend is Running"}
-
-# --- CONFIGURATION ---
-# Cloudinary Keys
+# Configuration (Ensure these are in your Render Environment Variables!)
 cloudinary.config( 
-  cloud_name = "do76w2ke2", 
-  api_key = "562397812131958", 
-  api_secret = "rB_fTxfHsbnqAR9ZREeaCcX5EH8",
-  secure = True
+  cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"), 
+  api_key=os.getenv("CLOUDINARY_API_KEY"), 
+  api_secret=os.getenv("CLOUDINARY_API_SECRET"),
+  secure=True
 )
-
-# Other Keys
-CREATOMATE_API_KEY = "295c6ed0f5384ea9b326b5d3f94caa2797efbdc100766ec46c2b1003f161e4a60fd00fd4b10f44f526dacc9421cdc1e0"
-genai.configure(api_key="AIzaSyDCj80sHjFNJAwRdmayNQ09A0Y6wDxl1II")
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+CREATOMATE_API_KEY = os.getenv("CREATOMATE_API_KEY")
 
 @app.post("/create-viral-edit")
 async def create_viral_edit(file: UploadFile = File(...)):
-    # 1. Upload to Cloudinary to get a public URL
-    # Creatomate needs a URL to "see" the video
-    upload_result = cloudinary.uploader.upload(file.file, resource_type="video")
+    # 1. Save locally temporarily for Gemini Upload
+    temp_path = f"temp_{file.filename}"
+    with open(temp_path, "wb") as buffer:
+        buffer.write(await file.read())
+
+    # 2. Upload to Cloudinary (for Creatomate to use later)
+    upload_result = cloudinary.uploader.upload(temp_path, resource_type="video")
     video_url = upload_result.get("secure_url")
 
-    # 2. Let Gemini analyze the video for the best 5-second hook
-    # We use the Cloudinary URL so we don't have to re-upload
-    model = genai.GenerativeModel('gemini-3-flash') # Or gemini-3-flash in 2026
+    # 3. Upload to Gemini File API (This is the fix!)
+    print("Uploading to Gemini...")
+    gemini_file = genai.upload_file(path=temp_path)
     
-    # Prompting Gemini to return JSON instructions
-    prompt = f"""
-    Analyze this video: {video_url}
-    Identify the most engaging 5-second 'hook' moment.
-    Return ONLY JSON: 
-    {{ "start": (seconds), "caption": "Viral text for overlay" }}
-    """
-    
-    # Note: In a production app, you'd use genai.upload_file for better analysis
-    # For this 'Easy' version, we'll assume Gemini processes the URL
-    response = model.generate_content(prompt)
-    # Simple extraction of the JSON part
-    import json
-    import re
-    clean_json = re.search(r'\{.*\}', response.text, re.DOTALL).group()
-    edit_instructions = json.loads(clean_json)
+    # Wait for Gemini to process the video frames
+    while gemini_file.state.name == "PROCESSING":
+        print(".", end="", flush=True)
+        time.sleep(2)
+        gemini_file = genai.get_file(gemini_file.name)
 
-    # 3. Tell Creatomate to Render the final video
+    # 4. Ask Gemini for the viral hook
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    prompt = "Analyze this video and identify the most engaging 5-second viral hook. Return ONLY JSON: { \"start\": 12.5, \"caption\": \"Wait for the end!\" }"
+    
+    response = model.generate_content([gemini_file, prompt])
+    
+    # Cleanup temp file
+    os.remove(temp_path)
+
+    # Extract JSON from response
+    try:
+        clean_json = re.search(r'\{.*\}', response.text, re.DOTALL).group()
+        edit_instructions = json.loads(clean_json)
+    except:
+        # Fallback if AI fails
+        edit_instructions = {"start": 0, "caption": "Viral Moment!"}
+
+    # 5. Tell Creatomate to Render
     render_data = {
-        "output_format": "mp4",
         "source": {
-            "duration": 5, # We want a short, punchy clip
+            "output_format": "mp4",
             "elements": [
                 {
                     "type": "video",
                     "source": video_url,
                     "trim_start": edit_instructions['start'],
-                    "width": "100%",
-                    "height": "100%",
-                    "smart_crop": True # 2026 feature: automatically centers the action
+                    "duration": 5,
+                    "smart_crop": True
                 },
                 {
                     "type": "text",
                     "text": edit_instructions['caption'],
-                    "font": "Montserrat ExtraBold",
-                    "y": "75%",
-                    "background_color": "rgba(0,0,0,0.6)",
-                    "padding": "2%"
+                    "y": "80%",
+                    "background_color": "rgba(0,0,0,0.7)"
                 }
             ]
         }
     }
 
-    headers = {
-        "Authorization": f"Bearer {CREATOMATE_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
-    render_response = requests.post(
-        "https://api.creatomate.com/v1/renders",
-        headers=headers,
-        json=render_data
-    )
-
-    # This returns a Render ID. You can poll this ID to get the final URL 
-    # when the video is finished (usually takes 5-10 seconds).
-    return render_response.json()   
-
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    headers = {"Authorization": f"Bearer {CREATOMATE_API_KEY}", "Content-Type": "application/json"}
+    render_res = requests.post("https://api.creatomate.com/v1/renders", headers=headers, json=render_data)
+    
+    return render_res.json()
