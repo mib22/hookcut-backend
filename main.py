@@ -38,11 +38,23 @@ async def create_viral_edit(file: UploadFile = File(...)):
         time.sleep(2)
         gemini_file = genai.get_file(gemini_file.name)
 
-    # 4. Ask Gemini for the viral hook
-    model = genai.GenerativeModel('gemini-1.5-flash')
-    prompt = "Analyze this video and identify the most engaging 5-second viral hook. Return ONLY JSON: { \"start\": 12.5, \"caption\": \"Wait for the end!\" }"
+# ... (Keep your upload code the same) ...
+
+    # 4. Ask Gemini (Speed-Optimized Prompt)
+    model = genai.GenerativeModel('gemini-2.5-flash')
     
-    response = model.generate_content([gemini_file, prompt])
+    # We add "Be concise" and "No yapping" to skip extra thinking time
+    prompt = """
+    TASK: Find the best 5-second viral hook in this video.
+    REQUIREMENT: Return ONLY raw JSON. No markdown, no intro.
+    FORMAT: { "start": 0.0, "caption": "TEXT" }
+    """
+    
+    # Set a timeout for the actual content generation
+    response = model.generate_content(
+        [gemini_file, prompt],
+        generation_config={"temperature": 0.1} # Lower temp = Faster, more consistent JSON
+    )
     
     # Cleanup temp file
     os.remove(temp_path)
