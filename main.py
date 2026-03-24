@@ -92,4 +92,11 @@ async def create_viral_edit(file: UploadFile = File(...)):
     headers = {"Authorization": f"Bearer {CREATOMATE_API_KEY}", "Content-Type": "application/json"}
     render_res = requests.post("https://api.creatomate.com/v1/renders", headers=headers, json=render_data)
     
-    return render_res.json()
+    # NEW: Add a print here so you can see the Creatomate response in Render logs
+    response_data = render_res.json()
+    print(f"Creatomate Response: {response_data}")
+    
+    # Ensure we return a clean dictionary with the ID
+    if isinstance(response_data, list):
+        return response_data[0]
+    return response_data
