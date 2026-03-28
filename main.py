@@ -148,7 +148,7 @@ FORMAT: { "start": 0.0, "caption": "TEXT" }
         headers = {"Authorization": f"Bearer {CREATOMATE_API_KEY}", "Content-Type": "application/json"}
         render_res = requests.post("https://api.creatomate.com/v1/renders", headers=headers, json=render_data, timeout=30)
         
-        if render_res.status_code not in [200, 201]:
+        if not render_res.ok:
             raise HTTPException(status_code=500, detail=f"Creatomate API error: {render_res.text}")
 
         response_data = render_res.json()
