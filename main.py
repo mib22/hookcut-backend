@@ -86,7 +86,7 @@ async def create_viral_edit(
             gemini_file = genai.get_file(gemini_file.name)
 
         # 4. Generate hook instructions
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         prompt = '''
 TASK: Find the best 5-second viral hook in this video.
 REQUIREMENT: Return ONLY raw JSON. No markdown, no intro.
