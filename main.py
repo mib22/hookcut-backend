@@ -99,10 +99,20 @@ FORMAT: { "start": 0.0, "caption": "TEXT" }
         
         # Parse JSON
         try:
-            clean_json = re.search(r'\{.*\}', response.text, re.DOTALL).group()
-            edit_instructions = json.loads(clean_json)
-            if not isinstance(edit_instructions, dict) or 'start' not in edit_instructions:
-                raise ValueError("Invalid JSON format")
+# Extract response text
+            response_text = response.text
+            
+            # Try strict regex first
+            match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            
+            if match:
+                json_str = match.group(0)
+            else:
+                # Fallback: Strip common markdown tags if regex fails
+                json_str = response_text.replace("```json", "").replace("```", "").strip()
+                
+            # Parse the JSON
+            hook_data = json.loads(json_str)
         except Exception as e:
             print(f"JSON parse error: {e}")
             edit_instructions = {"start": 0.0, "caption": "Epic Viral Moment!"}
@@ -138,7 +148,7 @@ FORMAT: { "start": 0.0, "caption": "TEXT" }
         headers = {"Authorization": f"Bearer {CREATOMATE_API_KEY}", "Content-Type": "application/json"}
         render_res = requests.post("https://api.creatomate.com/v1/renders", headers=headers, json=render_data, timeout=30)
         
-        if render_res.status_code != 201:
+        if render_res.status_code not in [200, 201]:
             raise HTTPException(status_code=500, detail=f"Creatomate API error: {render_res.text}")
 
         response_data = render_res.json()
